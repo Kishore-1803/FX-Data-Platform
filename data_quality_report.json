@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-10-30T12:39:49.999933Z",
+  "timestamp": "2026-10-30T13:12:24.316259Z",
   "pipeline_stages": {
     "raw_ingestion": 75337,
     "cleaned_stage": 75337,
@@ -67,7 +67,7 @@
     }
   },
   "schema_validation": {
-    "expected_count": 7,
+    "expected_count": 24,
     "actual_count": 24,
     "missing_columns": [],
     "is_valid": true
