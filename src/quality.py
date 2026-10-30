@@ -26,12 +26,45 @@ class DataQualityChecker:
             "duplicate_checks": {},
             "null_counts": {},
             "schema_validation": {},
+            "pairs_covered": [],
+            "date_range_per_pair": {},
+            "anomalies": {},
             "passed": True
         }
 
     def record_stage_count(self, stage_name: str, count_value: int) -> None:
         logger.info(f"[STAGE: {stage_name}] Row count = {count_value:,}")
         self.report["pipeline_stages"][stage_name] = count_value
+
+    def record_profile_and_anomalies(self, df: DataFrame) -> Dict[str, Any]:
+        from pyspark.sql.functions import min, max, dayofweek
+        all_expected_15 = [
+            "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD",
+            "USDCHF", "NZDUSD", "EURGBP", "EURJPY", "GBPJPY",
+            "AUDJPY", "EURAUD", "EURCHF", "GBPCHF", "NZDJPY"
+        ]
+        pairs = [r["Pair"] for r in df.select("Pair").distinct().collect()]
+        self.report["pairs_covered"] = sorted(pairs)
+
+        date_ranges = {}
+        for r in df.groupBy("Pair").agg(min("Date").alias("min_d"), max("Date").alias("max_d")).collect():
+            date_ranges[r["Pair"]] = {"earliest": str(r["min_d"]), "latest": str(r["max_d"])}
+        self.report["date_range_per_pair"] = date_ranges
+
+        zero_vol = df.filter(col("Volume") == 0).count()
+        # dayofweek: Sunday=1, Saturday=7
+        weekend_rows = df.filter(dayofweek(col("Timestamp_UTC")).isin([1, 7])).count()
+        missing_pairs = [p for p in all_expected_15 if p not in pairs]
+
+        self.report["anomalies"] = {
+            "zero_volume_rows": zero_vol,
+            "weekend_rows": weekend_rows,
+            "missing_pairs": missing_pairs,
+            "expected_pair_count": len(all_expected_15),
+            "actual_pair_count": len(pairs)
+        }
+        logger.info(f"[ANOMALIES] Zero volume: {zero_vol}, Weekend rows: {weekend_rows}, Missing pairs: {missing_pairs}")
+        return self.report["anomalies"]
 
     def check_duplicates(self, df: DataFrame, subset: List[str], check_name: str) -> int:
         total_rows = df.count()

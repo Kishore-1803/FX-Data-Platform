@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-10-30T13:12:24.316259Z",
+  "timestamp": "2026-10-30T16:19:49.976062Z",
   "pipeline_stages": {
     "raw_ingestion": 75337,
     "cleaned_stage": 75337,
@@ -71,6 +71,41 @@
     "actual_count": 24,
     "missing_columns": [],
     "is_valid": true
+  },
+  "pairs_covered": [
+    "EURUSD",
+    "GBPUSD"
+  ],
+  "date_range_per_pair": {
+    "EURUSD": {
+      "earliest": "2017-01-01",
+      "latest": "2024-12-31 23:00:00"
+    },
+    "GBPUSD": {
+      "earliest": "2017-01-01 00:00:00",
+      "latest": "2017-07-28 07:00:00"
+    }
+  },
+  "anomalies": {
+    "zero_volume_rows": 0,
+    "weekend_rows": 21515,
+    "missing_pairs": [
+      "USDJPY",
+      "AUDUSD",
+      "USDCAD",
+      "USDCHF",
+      "NZDUSD",
+      "EURGBP",
+      "EURJPY",
+      "GBPJPY",
+      "AUDJPY",
+      "EURAUD",
+      "EURCHF",
+      "GBPCHF",
+      "NZDJPY"
+    ],
+    "expected_pair_count": 15,
+    "actual_pair_count": 2
   },
   "passed": true
 }

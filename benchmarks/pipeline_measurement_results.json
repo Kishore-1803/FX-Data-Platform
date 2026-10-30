@@ -1,0 +1,84 @@
+{
+  "machine_specs": {
+    "cpu_physical_cores": 24,
+    "cpu_logical_cores": 32,
+    "total_ram_gb": 15.63,
+    "available_ram_gb": 2.07
+  },
+  "spark_config": {
+    "master": "local[*]",
+    "spark.driver.memory": "4g",
+    "spark.sql.shuffle.partitions": "4",
+    "spark.sql.adaptive.enabled": "true",
+    "spark.sql.session.timeZone": "UTC"
+  },
+  "runs": {
+    "run1_cold": {
+      "ingest": 3.3202986999967834,
+      "clean": 5.943723799995496,
+      "features": 0.9448793999908958,
+      "quality": 7.990132600010838,
+      "write_parquet": 5.608225099989795,
+      "total": 23.80778940000164
+    },
+    "run2_warm": {
+      "ingest": 0.26751689999946393,
+      "clean": 2.6714403000078164,
+      "features": 0.7995419999933802,
+      "quality": 6.914629999999306,
+      "write_parquet": 3.8101058000029298,
+      "total": 14.463740399995004
+    },
+    "run3_warm": {
+      "ingest": 0.17246970000269357,
+      "clean": 1.9236853000038536,
+      "features": 0.6911474999942584,
+      "quality": 6.787559899996268,
+      "write_parquet": 3.4745279000053415,
+      "total": 13.049931399989873
+    }
+  },
+  "mean_timings": {
+    "ingest": 1.2534284333329804,
+    "clean": 3.5129498000023887,
+    "features": 0.8118562999928448,
+    "quality": 7.230774166668804,
+    "write_parquet": 4.297619599999355,
+    "total": 17.10715373332884
+  },
+  "row_counts": {
+    "raw": 75337,
+    "cleaned": 75337,
+    "features": 75337
+  },
+  "parquet_metrics": {
+    "total_size_bytes": 8569566,
+    "total_size_mb": 8.17,
+    "total_file_count": 20,
+    "parquet_data_file_count": 9,
+    "compression_codec": "snappy",
+    "partition_dirs_count": 11,
+    "sample_partition_layout": [
+      "Pair=EURUSD",
+      "Pair=EURUSD\\Year=2017",
+      "Pair=EURUSD\\Year=2018",
+      "Pair=EURUSD\\Year=2019",
+      "Pair=EURUSD\\Year=2020",
+      "Pair=EURUSD\\Year=2021",
+      "Pair=EURUSD\\Year=2022",
+      "Pair=EURUSD\\Year=2023",
+      "Pair=EURUSD\\Year=2024",
+      "Pair=GBPUSD"
+    ]
+  },
+  "size_comparisons": {
+    "total_input_csv_bytes": 4365811,
+    "total_input_csv_mb": 4.16,
+    "same_cols_parquet_bytes": 2462682,
+    "same_cols_parquet_mb": 2.35,
+    "same_cols_ratio_csv_to_parquet": 1.77,
+    "all_cols_parquet_bytes": 8569566,
+    "all_cols_parquet_mb": 8.17,
+    "all_cols_ratio_parquet_to_csv": 1.96
+  }
+}

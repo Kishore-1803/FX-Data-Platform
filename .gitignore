@@ -5,6 +5,6 @@ spark-warehouse/
 metastore_db/
 derby.log
 *.parquet/
-data/processed/
-data/parquet/
+data/
 .env
+

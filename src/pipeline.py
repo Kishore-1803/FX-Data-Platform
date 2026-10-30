@@ -17,35 +17,54 @@ logger = logging.getLogger("ForexPipelineOrchestrator")
 def run_pipeline(
     raw_dir: str = "data/raw",
     output_parquet_dir: str = "data/processed/parquet",
-    quality_report_path: str = "data_quality_report.json"
+    quality_report_path: str = "data_quality_report.json",
+    spark=None
 ):
+    import time
     logger.info("=" * 70)
     logger.info("STARTING END-TO-END FOREX BATCH ETL & FEATURE ENGINEERING PIPELINE")
     logger.info("=" * 70)
 
-    spark = get_spark_session("ForexBatchPipelineProduction")
+    owns_spark = False
+    if spark is None:
+        spark = get_spark_session("ForexBatchPipelineProduction")
+        owns_spark = True
+
+    timings = {}
+    total_start = time.perf_counter()
+
     dq = DataQualityChecker(spark)
 
     # 1. Ingestion
+    t0 = time.perf_counter()
     logger.info("Phase 1: Ingestion with explicit schema")
     raw_df = ingest_all_raw_data(spark, raw_dir)
     raw_count = raw_df.count()
+    timings["ingest"] = time.perf_counter() - t0
     dq.record_stage_count("raw_ingestion", raw_count)
-    dq.check_duplicates(raw_df, ["Pair", "Date"], "raw_duplicates")
-    dq.check_null_counts(raw_df, "raw_stage")
 
     # 2. Cleaning & Imputation
+    t0 = time.perf_counter()
     logger.info("Phase 2: Data cleaning (deduplication, UTC timezone conversion, partitioned forward-fill)")
     cleaned_df = clean_forex_data(raw_df)
     cleaned_count = cleaned_df.count()
+    timings["clean"] = time.perf_counter() - t0
     dq.record_stage_count("cleaned_stage", cleaned_count)
-    dq.check_null_counts(cleaned_df, "cleaned_stage")
 
     # 3. Feature Engineering
+    t0 = time.perf_counter()
     logger.info("Phase 3: Technical indicator and lag feature engineering (partitionBy('Pair').orderBy('Date'))")
     features_df = build_features(cleaned_df)
     features_count = features_df.count()
+    timings["features"] = time.perf_counter() - t0
     dq.record_stage_count("features_stage", features_count)
+
+    # 4. Data Quality & Profiling
+    t0 = time.perf_counter()
+    logger.info("Phase 4: Data Quality Checks, Schema Validation, and Anomaly Detection")
+    dq.check_duplicates(raw_df, ["Pair", "Date"], "raw_duplicates")
+    dq.check_null_counts(raw_df, "raw_stage")
+    dq.check_null_counts(cleaned_df, "cleaned_stage")
     dq.check_null_counts(features_df, "features_stage")
     dq.validate_schema(features_df, [
         "Date", "Pair", "Timeframe", "Timestamp_UTC", "Year",
@@ -55,20 +74,37 @@ def run_pipeline(
         "Close_lag1", "Close_lag2", "Close_lag3",
         "Change_lag1", "Change_lag2", "MA5_MA20_Ratio", "Gain", "Loss"
     ])
-
-    # 4. Parquet Output
-    logger.info("Phase 4: Writing snappy Parquet partitioned by Pair and Year")
-    out_path = write_partitioned_parquet(features_df, output_parquet_dir)
-
-    # 5. Save Data Quality Report
+    dq.record_profile_and_anomalies(features_df)
     dq_path = dq.save_report(quality_report_path)
+    timings["quality"] = time.perf_counter() - t0
     logger.info(f"Data quality report saved to {dq_path}")
 
+    # 5. Parquet Output
+    t0 = time.perf_counter()
+    logger.info("Phase 5: Writing snappy Parquet partitioned by Pair and Year")
+    out_path = write_partitioned_parquet(features_df, output_parquet_dir)
+    timings["write_parquet"] = time.perf_counter() - t0
+
+    timings["total"] = time.perf_counter() - total_start
+
     logger.info("=" * 70)
-    logger.info(f"PIPELINE COMPLETED: {features_count:,} records processed and written to {out_path}")
+    logger.info(f"PIPELINE COMPLETED in {timings['total']:.2f}s: {features_count:,} records processed and written to {out_path}")
+    logger.info(f"Stage breakdown: {timings}")
     logger.info("=" * 70)
 
-    spark.stop()
+    if owns_spark:
+        spark.stop()
+
+    return {
+        "timings": timings,
+        "counts": {
+            "raw": raw_count,
+            "cleaned": cleaned_count,
+            "features": features_count,
+        },
+        "output_path": out_path,
+        "quality_report_path": dq_path
+    }
 
 if __name__ == "__main__":
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))

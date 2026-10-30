@@ -1,0 +1,238 @@
+{
+  "monthly_volatility.sql": {
+    "runtime_seconds": 2.2832,
+    "columns": [
+      "Pair",
+      "Year",
+      "Month",
+      "Total_Bars",
+      "Avg_Close",
+      "Monthly_Volatility",
+      "Avg_Change_Pct"
+    ],
+    "first_5_rows": [
+      {
+        "Pair": "EURUSD",
+        "Year": 2017,
+        "Month": 1,
+        "Total_Bars": 775,
+        "Avg_Close": 1.54552,
+        "Monthly_Volatility": 0.176352,
+        "Avg_Change_Pct": 0.0631
+      },
+      {
+        "Pair": "EURUSD",
+        "Year": 2017,
+        "Month": 2,
+        "Total_Bars": 700,
+        "Avg_Close": 1.95683,
+        "Monthly_Volatility": 0.078781,
+        "Avg_Change_Pct": 0.0237
+      },
+      {
+        "Pair": "EURUSD",
+        "Year": 2017,
+        "Month": 3,
+        "Total_Bars": 775,
+        "Avg_Close": 2.19973,
+        "Monthly_Volatility": 0.065115,
+        "Avg_Change_Pct": -0.0063
+      },
+      {
+        "Pair": "EURUSD",
+        "Year": 2017,
+        "Month": 4,
+        "Total_Bars": 750,
+        "Avg_Close": 2.25953,
+        "Monthly_Volatility": 0.098501,
+        "Avg_Change_Pct": -0.0049
+      },
+      {
+        "Pair": "EURUSD",
+        "Year": 2017,
+        "Month": 5,
+        "Total_Bars": 775,
+        "Avg_Close": 2.16832,
+        "Monthly_Volatility": 0.124998,
+        "Avg_Change_Pct": 0.0014
+      }
+    ]
+  },
+  "top_volatility_days.sql": {
+    "runtime_seconds": 0.826,
+    "columns": [
+      "Volatility_Rank",
+      "Pair",
+      "Date",
+      "Close",
+      "Range",
+      "Range_Pct",
+      "ChangePct"
+    ],
+    "first_5_rows": [
+      {
+        "Volatility_Rank": 1,
+        "Pair": "EURUSD",
+        "Date": "2018-01-11 12:00:00",
+        "Close": 2.4619,
+        "Range": 0.07319999999999993,
+        "Range_Pct": 3.033,
+        "ChangePct": 2.0028505609970355
+      },
+      {
+        "Volatility_Rank": 2,
+        "Pair": "EURUSD",
+        "Date": "2017-07-25 06:00:00",
+        "Close": 2.23538,
+        "Range": 0.07264000000000026,
+        "Range_Pct": 3.268,
+        "ChangePct": -2.62455186593658
+      },
+      {
+        "Volatility_Rank": 3,
+        "Pair": "EURUSD",
+        "Date": "2018-04-16 08:00:00",
+        "Close": 2.71674,
+        "Range": 0.07184999999999997,
+        "Range_Pct": 2.685,
+        "ChangePct": 1.5357016052174264
+      },
+      {
+        "Volatility_Rank": 4,
+        "Pair": "EURUSD",
+        "Date": "2018-04-11 20:00:00",
+        "Close": 2.53143,
+        "Range": 0.07134000000000018,
+        "Range_Pct": 2.876,
+        "ChangePct": 2.065147709266547
+      },
+      {
+        "Volatility_Rank": 5,
+        "Pair": "EURUSD",
+        "Date": "2018-04-07 10:00:00",
+        "Close": 2.52098,
+        "Range": 0.07062999999999997,
+        "Range_Pct": 2.828,
+        "ChangePct": -1.8428460738773613
+      }
+    ]
+  },
+  "volume_aggregates.sql": {
+    "runtime_seconds": 0.4374,
+    "columns": [
+      "Pair",
+      "Year",
+      "Timeframe",
+      "Bar_Count",
+      "Total_Traded_Volume",
+      "Avg_Bar_Volume",
+      "Peak_Bar_Volume"
+    ],
+    "first_5_rows": [
+      {
+        "Pair": "EURUSD",
+        "Year": 2017,
+        "Timeframe": "1d",
+        "Bar_Count": 209,
+        "Total_Traded_Volume": 2190966,
+        "Avg_Bar_Volume": 10483.1,
+        "Peak_Bar_Volume": 34963
+      },
+      {
+        "Pair": "EURUSD",
+        "Year": 2017,
+        "Timeframe": "1h",
+        "Bar_Count": 8760,
+        "Total_Traded_Volume": 88905965,
+        "Avg_Bar_Volume": 10149.1,
+        "Peak_Bar_Volume": 65853
+      },
+      {
+        "Pair": "EURUSD",
+        "Year": 2018,
+        "Timeframe": "1h",
+        "Bar_Count": 8760,
+        "Total_Traded_Volume": 89294365,
+        "Avg_Bar_Volume": 10193.4,
+        "Peak_Bar_Volume": 55973
+      },
+      {
+        "Pair": "EURUSD",
+        "Year": 2019,
+        "Timeframe": "1h",
+        "Bar_Count": 8760,
+        "Total_Traded_Volume": 88148596,
+        "Avg_Bar_Volume": 10062.6,
+        "Peak_Bar_Volume": 52851
+      },
+      {
+        "Pair": "EURUSD",
+        "Year": 2020,
+        "Timeframe": "1h",
+        "Bar_Count": 8784,
+        "Total_Traded_Volume": 89720604,
+        "Avg_Bar_Volume": 10214.1,
+        "Peak_Bar_Volume": 56947
+      }
+    ]
+  },
+  "row_count_reconciliation.sql": {
+    "runtime_seconds": 0.5096,
+    "columns": [
+      "Pair",
+      "Timeframe",
+      "Year",
+      "Actual_Row_Count",
+      "Earliest_Timestamp",
+      "Latest_Timestamp",
+      "Distinct_Trading_Days"
+    ],
+    "first_5_rows": [
+      {
+        "Pair": "EURUSD",
+        "Timeframe": "1d",
+        "Year": 2017,
+        "Actual_Row_Count": 209,
+        "Earliest_Timestamp": "2017-01-01 05:30:00",
+        "Latest_Timestamp": "2017-07-28 05:30:00",
+        "Distinct_Trading_Days": 209
+      },
+      {
+        "Pair": "EURUSD",
+        "Timeframe": "1h",
+        "Year": 2017,
+        "Actual_Row_Count": 8760,
+        "Earliest_Timestamp": "2017-01-01 05:30:00",
+        "Latest_Timestamp": "2018-01-01 04:30:00",
+        "Distinct_Trading_Days": 365
+      },
+      {
+        "Pair": "EURUSD",
+        "Timeframe": "1h",
+        "Year": 2018,
+        "Actual_Row_Count": 8760,
+        "Earliest_Timestamp": "2018-01-01 05:30:00",
+        "Latest_Timestamp": "2019-01-01 04:30:00",
+        "Distinct_Trading_Days": 365
+      },
+      {
+        "Pair": "EURUSD",
+        "Timeframe": "1h",
+        "Year": 2019,
+        "Actual_Row_Count": 8760,
+        "Earliest_Timestamp": "2019-01-01 05:30:00",
+        "Latest_Timestamp": "2020-01-01 04:30:00",
+        "Distinct_Trading_Days": 365
+      },
+      {
+        "Pair": "EURUSD",
+        "Timeframe": "1h",
+        "Year": 2020,
+        "Actual_Row_Count": 8784,
+        "Earliest_Timestamp": "2020-01-01 05:30:00",
+        "Latest_Timestamp": "2021-01-01 04:30:00",
+        "Distinct_Trading_Days": 366
+      }
+    ]
+  }
+}
