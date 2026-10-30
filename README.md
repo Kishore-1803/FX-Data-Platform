@@ -144,13 +144,4 @@ Run Airflow via Docker Compose:
 ```bash
 docker compose -f docker-compose.airflow.yml up -d
 ```
-Access the Airflow UI at `http://localhost:8080` (Username: `admin`, Password: `admin`) to trigger the `forex_batch_pipeline` DAG.
-
 ---
-
-## Resume-Safe Facts for Data Engineering
-
-* **Distributed Feature Engineering:** Designed and implemented a PySpark feature pipeline engineering rolling indicators (MA5, MA20, Volatility20, RSI components) and time lags strictly partitioned by currency pair to eliminate data contamination.
-* **Data Quality Framework:** Built an automated data quality gate auditing schema compliance, null percentages, and duplicate records across 75,000+ time-series records, logging metrics to JSON.
-* **Storage Optimization:** Migrated raw CSV storage to Snappy-compressed Parquet partitioned by `(Pair, Year)`, improving read performance and decoupling storage from legacy HDFS client protocol issues.
-* **Orchestration & Workflow:** Built a modular Apache Airflow DAG (`ingest >> clean >> validate >> features >> write_parquet`) with automated retries and XCom metadata tracking.
