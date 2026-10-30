@@ -9,6 +9,9 @@ def get_spark_session(app_name: str = "ForexDataPipeline", master: str = "local[
     """
     os.environ["PYSPARK_PYTHON"] = sys.executable
     os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
+    if os.path.exists(r"C:\winutils"):
+        os.environ["HADOOP_HOME"] = r"C:\winutils"
+        os.environ["PATH"] = r"C:\winutils\bin;" + os.environ.get("PATH", "")
 
     builder = (
         SparkSession.builder
