@@ -1,0 +1,76 @@
+{
+  "timestamp": "2026-10-30T12:39:49.999933Z",
+  "pipeline_stages": {
+    "raw_ingestion": 75337,
+    "cleaned_stage": 75337,
+    "features_stage": 75337
+  },
+  "duplicate_checks": {
+    "raw_duplicates": {
+      "subset": [
+        "Pair",
+        "Date"
+      ],
+      "total_rows": 75337,
+      "distinct_rows": 75337,
+      "duplicate_count": 0
+    }
+  },
+  "null_counts": {
+    "raw_stage": {
+      "Date": 0,
+      "Open": 0,
+      "High": 0,
+      "Low": 0,
+      "Close": 0,
+      "Volume": 0,
+      "Pair": 0,
+      "Timeframe": 0
+    },
+    "cleaned_stage": {
+      "Date": 0,
+      "Open": 0,
+      "High": 0,
+      "Low": 0,
+      "Close": 0,
+      "Volume": 0,
+      "Pair": 0,
+      "Timeframe": 0,
+      "Timestamp_UTC": 0,
+      "Year": 0
+    },
+    "features_stage": {
+      "Date": 0,
+      "Open": 0,
+      "High": 0,
+      "Low": 0,
+      "Close": 0,
+      "Volume": 0,
+      "Pair": 0,
+      "Timeframe": 0,
+      "Timestamp_UTC": 0,
+      "Year": 0,
+      "Range": 0,
+      "Change": 0,
+      "ChangePct": 0,
+      "MA5": 0,
+      "MA20": 0,
+      "Volatility20": 2,
+      "Close_lag1": 2,
+      "Close_lag2": 4,
+      "Close_lag3": 6,
+      "Change_lag1": 2,
+      "Change_lag2": 4,
+      "MA5_MA20_Ratio": 0,
+      "Gain": 0,
+      "Loss": 0
+    }
+  },
+  "schema_validation": {
+    "expected_count": 7,
+    "actual_count": 24,
+    "missing_columns": [],
+    "is_valid": true
+  },
+  "passed": true
+}
