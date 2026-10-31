@@ -9,4 +9,6 @@ data/
 data/external/
 data/downloads_m1/
 .env
+.coverage
+*.db
 

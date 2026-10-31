@@ -1,8 +1,13 @@
+"""
+Apache Airflow DAG: 24-Hour Forex Data Platform Batch Pipeline
+Lineage:
+  replay >> bronze >> gate >> silver >> gold >> load >> score >> monitor
+"""
+
 import os
 import sys
 from datetime import datetime, timedelta
 
-# Ensure source modules are discoverable by Airflow workers
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
@@ -15,126 +20,130 @@ default_args = {
     "depends_on_past": False,
     "email_on_failure": False,
     "email_on_retry": False,
-    "retries": 1,
-    "retry_delay": timedelta(minutes=5),
+    "retries": 0,
+    "retry_delay": timedelta(minutes=1),
 }
 
-def task_ingest(**context):
+def task_replay(**context):
+    from src.replay import HistoricalReplayDriver
+    replay = HistoricalReplayDriver()
+    released = replay.release_next_slice(slice_size_hours=168)
+    msg = f"Released {len(released)} slice files to landing"
+    context["ti"].xcom_push(key="released_files", value=released)
+    return msg
+
+def task_bronze(**context):
     from src.spark_session import get_spark_session
-    from src.ingest import ingest_all_raw_data
-
-    spark = get_spark_session("Airflow_Ingest")
-    raw_dir = os.path.join(BASE_DIR, "data", "raw")
-    df = ingest_all_raw_data(spark, raw_dir)
-    count = df.count()
-    context["ti"].xcom_push(key="raw_count", value=count)
+    from src.bronze import ingest_to_bronze
+    spark = get_spark_session("Airflow_Bronze")
+    df = ingest_to_bronze(spark)
+    cnt = df.count()
     spark.stop()
-    return f"Successfully ingested {count} rows"
+    context["ti"].xcom_push(key="bronze_count", value=cnt)
+    return f"Bronze layer count: {cnt}"
 
-def task_clean(**context):
+def task_gate(**context):
     from src.spark_session import get_spark_session
-    from src.ingest import ingest_all_raw_data
-    from src.clean import clean_forex_data
-
-    spark = get_spark_session("Airflow_Clean")
-    raw_dir = os.path.join(BASE_DIR, "data", "raw")
-    raw_df = ingest_all_raw_data(spark, raw_dir)
-    cleaned_df = clean_forex_data(raw_df)
-    count = cleaned_df.count()
-    context["ti"].xcom_push(key="cleaned_count", value=count)
+    from src.quality_gate import QualityGate
+    spark = get_spark_session("Airflow_Gate")
+    b_df = spark.read.parquet("data/bronze")
+    qgate = QualityGate()
+    v_df, q_df, metrics = qgate.evaluate_and_filter(b_df)
+    v_cnt = v_df.count()
+    q_cnt = q_df.count()
     spark.stop()
-    return f"Successfully cleaned data, resulting in {count} records"
+    context["ti"].xcom_push(key="valid_count", value=v_cnt)
+    context["ti"].xcom_push(key="quarantine_count", value=q_cnt)
+    return f"Gate passed: {v_cnt}, quarantined: {q_cnt}"
 
-def task_validate(**context):
+def task_silver(**context):
     from src.spark_session import get_spark_session
-    from src.ingest import ingest_all_raw_data
-    from src.clean import clean_forex_data
-    from src.quality import DataQualityChecker
-
-    spark = get_spark_session("Airflow_Validate")
-    raw_dir = os.path.join(BASE_DIR, "data", "raw")
-    raw_df = ingest_all_raw_data(spark, raw_dir)
-    cleaned_df = clean_forex_data(raw_df)
-
-    dq = DataQualityChecker(spark)
-    dq.record_stage_count("airflow_cleaned_stage", cleaned_df.count())
-    dq.check_duplicates(cleaned_df, ["Pair", "Date"], "airflow_cleaned_duplicates")
-    dq.check_null_counts(cleaned_df, "airflow_cleaned_stage")
-
-    report_path = os.path.join(BASE_DIR, "data_quality_report.json")
-    dq.save_report(report_path)
+    from src.quality_gate import QualityGate
+    from src.silver import process_silver_layer
+    spark = get_spark_session("Airflow_Silver")
+    b_df = spark.read.parquet("data/bronze")
+    qgate = QualityGate()
+    v_df, _, _ = qgate.evaluate_and_filter(b_df)
+    s_df, fills = process_silver_layer(spark, v_df)
+    cnt = s_df.count()
     spark.stop()
-    return f"Quality validation passed; report saved to {report_path}"
+    context["ti"].xcom_push(key="silver_count", value=cnt)
+    return f"Silver count: {cnt}, fills added: {len(fills)}"
 
-def task_features(**context):
+def task_gold(**context):
     from src.spark_session import get_spark_session
-    from src.ingest import ingest_all_raw_data
-    from src.clean import clean_forex_data
-    from src.features import build_features
-
-    spark = get_spark_session("Airflow_Features")
-    raw_dir = os.path.join(BASE_DIR, "data", "raw")
-    raw_df = ingest_all_raw_data(spark, raw_dir)
-    cleaned_df = clean_forex_data(raw_df)
-    features_df = build_features(cleaned_df)
-    count = features_df.count()
-    context["ti"].xcom_push(key="features_count", value=count)
+    from src.gold import build_gold_features
+    spark = get_spark_session("Airflow_Gold")
+    s_df = spark.read.parquet("data/silver")
+    g_df = build_gold_features(spark, s_df)
+    cnt = g_df.count()
     spark.stop()
-    return f"Engineered features computed for {count} rows"
+    context["ti"].xcom_push(key="gold_count", value=cnt)
+    return f"Gold count: {cnt}"
 
-def task_write_parquet(**context):
-    from src.spark_session import get_spark_session
-    from src.ingest import ingest_all_raw_data
-    from src.clean import clean_forex_data
-    from src.features import build_features
-    from src.output import write_partitioned_parquet
+def task_load(**context):
+    from src.db_loader import (
+        get_db_engine, init_db, load_silver_to_postgres,
+        load_quarantine_to_postgres, load_fill_log_to_postgres
+    )
+    engine = get_db_engine()
+    init_db(engine)
+    curated_cnt = load_silver_to_postgres(engine)
+    q_cnt = load_quarantine_to_postgres(engine)
+    fill_cnt = load_fill_log_to_postgres(engine)
+    return f"Loaded to DB: {curated_cnt} curated, {q_cnt} quarantined, {fill_cnt} fills"
 
-    spark = get_spark_session("Airflow_WriteParquet")
-    raw_dir = os.path.join(BASE_DIR, "data", "raw")
-    out_dir = os.path.join(BASE_DIR, "data", "processed", "parquet")
+def task_score(**context):
+    from src.db_loader import get_db_engine
+    from src.forecasting import batch_score_latest_bars
+    import pandas as pd
+    engine = get_db_engine()
+    gold_df = pd.read_parquet("data/gold")
+    pairs = gold_df["Pair"].unique()
+    total_scored = 0
+    for p in pairs:
+        pair_gold = gold_df[gold_df["Pair"] == p].sort_values("Timestamp_UTC").reset_index(drop=True)
+        if not pair_gold.empty:
+            latest_bar = pair_gold.iloc[-1]
+            scored = batch_score_latest_bars(engine, {}, p, latest_bar)
+            total_scored += len(scored)
+    return f"Scored {total_scored} forecast steps across {len(pairs)} pairs into predictions table."
 
-    raw_df = ingest_all_raw_data(spark, raw_dir)
-    cleaned_df = clean_forex_data(raw_df)
-    features_df = build_features(cleaned_df)
-
-    output_path = write_partitioned_parquet(features_df, out_dir)
-    spark.stop()
-    return f"Parquet dataset persisted to {output_path}"
+def task_monitor(**context):
+    from src.db_loader import get_db_engine
+    from src.forecasting import run_monitoring_and_drift_detection, FEATURE_COLS
+    import pandas as pd
+    engine = get_db_engine()
+    gold_df = pd.read_parquet("data/gold")
+    pairs = gold_df["Pair"].unique()
+    total_alerts = 0
+    for p in pairs:
+        pair_df = gold_df[gold_df["Pair"] == p].dropna(subset=FEATURE_COLS).sort_values("Timestamp_UTC").reset_index(drop=True)
+        if len(pair_df) > 2000:
+            ref_features = pair_df.iloc[:2000][FEATURE_COLS].values
+            curr_features = pair_df.iloc[-500:][FEATURE_COLS].values
+            alerts = run_monitoring_and_drift_detection(engine, p, ref_features, curr_features)
+            total_alerts += len(alerts)
+    return f"Monitoring completed: {total_alerts} drift alerts recorded to monitoring_alerts table."
 
 with DAG(
-    dag_id="forex_batch_pipeline",
+    dag_id="forex_data_platform_dag",
     default_args=default_args,
-    description="24-Hour Forex Batch Processing Pipeline (Ingest -> Clean -> Validate -> Features -> Parquet)",
-    schedule_interval="@daily",
+    description="Full batch data platform pipeline (Replay -> Bronze -> Gate -> Silver -> Gold -> Load -> Score -> Monitor)",
+    schedule_interval=None,
     start_date=datetime(2024, 1, 1),
     catchup=False,
-    tags=["forex", "pyspark", "bigdata", "data_engineering"],
+    tags=["forex", "pyspark", "data_platform"],
 ) as dag:
 
-    ingest = PythonOperator(
-        task_id="ingest_raw_data",
-        python_callable=task_ingest,
-    )
+    replay = PythonOperator(task_id="replay", python_callable=task_replay)
+    bronze = PythonOperator(task_id="bronze", python_callable=task_bronze)
+    gate = PythonOperator(task_id="gate", python_callable=task_gate)
+    silver = PythonOperator(task_id="silver", python_callable=task_silver)
+    gold = PythonOperator(task_id="gold", python_callable=task_gold)
+    load = PythonOperator(task_id="load", python_callable=task_load)
+    score = PythonOperator(task_id="score", python_callable=task_score)
+    monitor = PythonOperator(task_id="monitor", python_callable=task_monitor)
 
-    clean = PythonOperator(
-        task_id="clean_and_deduplicate",
-        python_callable=task_clean,
-    )
-
-    validate = PythonOperator(
-        task_id="validate_data_quality",
-        python_callable=task_validate,
-    )
-
-    features = PythonOperator(
-        task_id="engineer_technical_features",
-        python_callable=task_features,
-    )
-
-    write_parquet = PythonOperator(
-        task_id="write_partitioned_parquet",
-        python_callable=task_write_parquet,
-    )
-
-    # Linear Pipeline Execution Dependency
-    ingest >> clean >> validate >> features >> write_parquet
+    # Strict Pipeline Lineage
+    replay >> bronze >> gate >> silver >> gold >> load >> score >> monitor

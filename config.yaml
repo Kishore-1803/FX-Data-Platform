@@ -1,0 +1,45 @@
+# Data Quality Gate & Pipeline Configuration
+
+data_sources:
+  primary_dir: "data/external"
+  sample_dir: "data/raw"
+  replay_dir: "data/landing"
+  bronze_dir: "data/bronze"
+  silver_dir: "data/silver"
+  gold_dir: "data/gold"
+  quarantine_dir: "data/quarantine"
+
+quality_gate:
+  # Schema validation
+  required_columns: ["Date", "Open", "High", "Low", "Close", "Volume", "Pair"]
+  
+  # Price plausibility bounds per currency pair (rejects corrupted/synthetic feeds)
+  price_bounds:
+    EURUSD: {min: 0.85, max: 1.45}
+    GBPUSD: {min: 1.00, max: 1.65}
+    USDJPY: {min: 90.0, max: 180.0}
+    AUDUSD: {min: 0.50, max: 0.95}
+    USDCAD: {min: 1.10, max: 1.60}
+    USDCHF: {min: 0.70, max: 1.20}
+  
+  # Outlier jump threshold: maximum allowable percentage change in a single 1h bar (e.g. 5%)
+  max_hourly_jump_pct: 5.0
+  
+  # Gaps & Calendar
+  forward_fill_cap_hours: 3
+  
+  # Market closure definition (UTC)
+  # Weekend gap spans Friday evening (>= 19:00 UTC) to Sunday evening (>= 20:00 UTC)
+  weekend_closure:
+    friday_min_hour_utc: 19
+    friday_max_hour_utc: 22
+    sunday_min_hour_utc: 20
+    sunday_max_hour_utc: 23
+
+database:
+  host: "localhost"
+  port: 5432
+  user: "airflow"
+  password: "airflow_password"
+  dbname: "forex_platform"
+

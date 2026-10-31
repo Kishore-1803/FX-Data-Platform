@@ -1,0 +1,27 @@
+FROM apache/airflow:2.8.1-python3.10
+
+USER root
+
+# Install OpenJDK 17 headless & procps for PySpark execution inside Airflow
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        openjdk-17-jre-headless \
+        procps && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+ENV PATH="${JAVA_HOME}/bin:${PATH}"
+
+USER airflow
+
+# Install Python requirements inside Airflow container (preserving Airflow 2.8 SQLAlchemy 1.4 pin)
+RUN pip install --no-cache-dir \
+    "pyspark==3.5.0" \
+    "pandas>=2.0.0,<2.2.0" \
+    "pyarrow>=14.0.0" \
+    "scikit-learn>=1.3.0" \
+    "psycopg2-binary>=2.9.0" \
+    "pyyaml>=6.0" \
+    "sqlalchemy<2.0.0,>=1.4.28"
+

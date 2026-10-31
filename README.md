@@ -1,12 +1,15 @@
-# Forex Distributed Data Engineering Pipeline
+# Forex Data Platform & 24-Hour Forecasting Layer
 
-[![PySpark](https://img.shields.io/badge/PySpark-4.2+-orange.svg)](https://spark.apache.org/)
-[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Parquet](https://img.shields.io/badge/Format-Parquet%20(Snappy)-green.svg)](https://parquet.apache.org/)
+[![PySpark](https://img.shields.io/badge/PySpark-3.5%2F4.2-orange.svg)](https://spark.apache.org/)
+[![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
+[![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL%2015-blue.svg)](https://www.postgresql.org/)
 [![Airflow](https://img.shields.io/badge/Orchestrator-Apache%20Airflow%202.8-red.svg)](https://airflow.apache.org/)
-[![Testing](https://img.shields.io/badge/Tests-pytest%20(4%20passed)-brightgreen.svg)](https://pytest.org/)
+[![Tests](https://img.shields.io/badge/Tests-pytest%20(9%20passed)-brightgreen.svg)](https://pytest.org/)
 
-A production-grade, distributed big data ETL, feature engineering, and data quality pipeline for multi-year historical Foreign Exchange (Forex) OHLCV market data built with **PySpark**, **Apache Spark SQL**, **Parquet**, and **Apache Airflow**.
+An automated Forex historical data platform with an incremental batch pipeline, automated data quality gate, PostgreSQL storage, point-in-time technical feature store, and a 24-hour multi-horizon hourly forecasting layer.
+
+> [!IMPORTANT]
+> **Data Stream & Feed Architecture**: This platform consumes and replays historical currency market data for simulation and backtesting purposes. It is **not** a real-time market data feed. All reported metrics, models, and latency figures represent empirical measurements on historical replay batches.
 
 ---
 
@@ -14,195 +17,153 @@ A production-grade, distributed big data ETL, feature engineering, and data qual
 
 ```mermaid
 flowchart TD
-    subgraph Ingestion ["1. Explicit Schema Ingestion"]
-        A[Raw Forex CSVs: EURUSD, GBPUSD...] -->|Explicit StructType| B[Spark DataFrame Ingest]
-        B -->|Extract Metadata| C[Attach Pair & Timeframe Columns]
+    subgraph Replay ["1. Historical Replay Driver"]
+        A[External HistData CSVs: 2017-2024] -->|Configurable Slice Release e.g. 720h| B[Landing Zone: data/landing]
     end
 
-    subgraph Cleaning ["2. Robust Data Cleaning & Imputation"]
-        C --> D[Deduplicate on Pair + Date]
-        D --> E[Parse Timezone & Convert to UTC]
-        E --> F[Forward-fill Gaps: last ignoreNulls over Pair Window]
-        F --> G[Drop Remaining Nulls & Derive Year]
+    subgraph Bronze ["2. Bronze Layer (Append-Only)"]
+        B -->|Explicit Schema Ingest| C[Append-Only Snappy Parquet]
+        C -->|Attach Metadata| D[Pair, ingest_ts, source_file]
     end
 
-    subgraph Quality ["3. Automated Data Quality Gate"]
-        G --> H[DataQualityChecker]
-        H -->|Validation| I[data_quality_report.json]
-        H -->|Register Temp View| J[(TempView: forex_cleaned)]
+    subgraph Gate ["3. Catalyst Quality Gate"]
+        D -->|SQL Predicates & Window Checks| E{Quality Rules}
+        E -->|Pass Schema & Bounds| F[Valid Bronze Records]
+        E -->|Fail Bounds or Jumps > 5%| G[(Quarantine Parquet + Reason)]
     end
 
-    subgraph Features ["4. Distributed Feature Engineering"]
-        J --> K[Window.partitionBy Pair .orderBy Date]
-        K --> L[Spread: Range, Change, ChangePct]
-        K --> M[Rolling Indicators: MA5, MA20, Volatility20]
-        K --> N[Time-Series Lags: Close_lag1..3, Change_lag1..2]
-        K --> O[Momentum: MA5_MA20_Ratio, Gain, Loss]
+    subgraph Silver ["4. Silver Layer (Clean & Capped Fill)"]
+        F -->|Dedup & UTC Parsing| H[UTC Timestamp Conversion]
+        H -->|Identify Unexpected Gaps| I{Gap Length}
+        I -->|Gap <= 3 Hours| J[Forward-Fill Close & Vol=0, is_filled=True]
+        I -->|Weekend or Gap > 3 Hours| K[Preserve Market Closure]
+        J --> L[(Silver Parquet & fill_log)]
+        K --> L
     end
 
-    subgraph Output ["5. Optimized Storage & Analytics"]
-        O -->|Partitioned by Pair and Year| P[(Snappy Parquet on Local Disk)]
-        J -->|4 Analytical Queries| Q[Spark SQL Analytics in sql/]
-        P --> R[Downstream ML & Predictive Models]
+    subgraph Gold ["5. Gold Layer (Feature Store)"]
+        L -->|Point-in-Time Technical Features| M[Lags, Rolling Vol 5/20, MA Ratios, Range, ATR14]
+        L -->|Cyclical Encodings| N[hour_sin, hour_cos, dow_sin, dow_cos]
+        M --> O[Dual-Endpoint Target Masking: r_1..r_24]
+        N --> O
+        O --> P[(Gold Partitioned Parquet)]
+    end
+
+    subgraph Storage ["6. PostgreSQL Lakehouse"]
+        L -->|Upsert Curated Rates| Q[(curated_rates: 298,456 rows)]
+        L -->|Audit Trail| R[(fill_log: 4,634 rows)]
+    end
+
+    subgraph Serving ["7. Serving & Forecasting Layer"]
+        P -->|5-Fold Expanding Walk-Forward CV| S[Direct Ridge & Tree Models]
+        S -->|Batch Scoring 24 Steps| T[(predictions table)]
+        S -->|Metadata & Metrics| U[(model_registry table)]
+        P -->|KS Two-Sample Test| V[(monitoring_alerts table)]
+        Q & T & U --> W[FastAPI Service: /rates, /predict, /model/metrics]
     end
 ```
 
 ---
 
-## Key Data Engineering Highlights
+## Data Provenance & Ingestion Specs
 
-* **Explicit Schema Enforcement:** Eliminates runtime type guessing overhead by applying strict `StructType` schemas across all ingested OHLCV CSVs.
-* **Window Isolation Guarantee:** Guarantees zero cross-currency data bleeding by strictly enforcing `Window.partitionBy("Pair").orderBy("Date")` across all rolling moving averages (`MA5`, `MA20`), volatility calculations (`Volatility20`), and time-lag features (`Close_lag1..3`, `Change_lag1..2`).
-* **Robust Temporal Imputation:** Handles weekend and market holiday closures using UTC timestamp alignment and windowed forward-fill (`last(..., ignoreNulls=True)`).
-* **Parquet Partitioning Architecture:** Persists compressed columnar Snappy Parquet partitioned by `Pair` and `Year`. This completely bypasses the legacy Hadoop RPC client version incompatibility (`RPC response exceeds maximum data length`) that affected direct HDFS writes in earlier prototypes.
-* **Automated Data Quality Gates:** Measures row count deltas across all stages, monitors null/NaN percentages per feature column, checks uniqueness constraints, and logs reports to `data_quality_report.json`.
-* **Empirical Benchmarks:** Contains reproducible benchmarks comparing Pandas vs. PySpark preprocessing throughput across multiple scale tiers, and CSV vs. Parquet aggregation speeds.
-
----
-
-## Measured Performance & Production Results
-
-All measurements are empirical, recorded on an **Intel Core i9-13900HX** (24 physical cores / 32 threads, 15.63 GB RAM) running PySpark 4.2 (`local[*]`, 4 GB driver memory, 4 shuffle partitions):
-
-### 1. End-to-End Pipeline Wall-Clock Duration
-
-Processed **75,337 records** across **8 full years of trading data (2017–2024)**:
-
-| Pipeline Stage | Run 1 (Cold JVM) | Run 2 (Warm) | Run 3 (Warm) | Mean Duration |
-| :--- | :--- | :--- | :--- | :--- |
-| **Phase 1: Ingestion** | 3.32 s | 0.27 s | 0.17 s | **1.25 s** |
-| **Phase 2: Cleaning & Imputation** | 5.94 s | 2.67 s | 1.92 s | **3.51 s** |
-| **Phase 3: Feature Engineering** | 0.94 s | 0.80 s | 0.69 s | **0.81 s** |
-| **Phase 4: Data Quality Checks** | 7.99 s | 6.91 s | 6.79 s | **7.23 s** |
-| **Phase 5: Partitioned Parquet Write** | 5.61 s | 3.81 s | 3.47 s | **4.30 s** |
-| **Total Wall-Clock Pipeline Time** | **23.81 s** | **14.46 s** | **13.05 s** | **17.11 s** |
-
-### 2. Parquet Storage Footprint & Compression
-
-| Format & Scope | Schema | Disk Size | Ratio vs CSV | Compression Savings |
-| :--- | :--- | :--- | :--- | :--- |
-| **Raw Input CSVs** | 6 raw columns | 4.16 MB (4,365,811 B) | 1.00x (Baseline) | — |
-| **Snappy Parquet (Same Schema)** | 6 raw columns | 2.35 MB (2,462,682 B) | **0.56x** | **43.59% reduction** |
-| **Snappy Parquet (Feature Store)** | 24 columns | 8.17 MB (8,569,566 B) | **1.96x** | +18 indicators/lags |
-
-* Directory Partitioning: `Pair={EURUSD, GBPUSD}/Year={2017..2024}` (9 leaf partition subdirectories, 9 snappy `.parquet` part files).
-
-### 3. Preprocessing Throughput: Pandas vs. PySpark Across Scales
-
-| Scale Tier | Dataset Scope | Rows | Engine | Mean Runtime |
-| :--- | :--- | :--- | :--- | :--- |
-| **(a) Single Hourly File** | EURUSD 1h | 70,128 | **Pandas**<br>**PySpark** | **0.1222 s**<br>3.9926 s (warm: ~1.82s) |
-| **(b) All Hourly Files** | EURUSD 1h + GBPUSD 1h | 75,128 | **Pandas**<br>**PySpark** | **0.2124 s**<br>2.2328 s (warm: ~2.01s) |
-| **(c) Full Multi-Timeframe** | EURUSD (1h, 1d) + GBPUSD (1h) | 75,337 | **Pandas**<br>**PySpark** | **0.1897 s**<br>2.0918 s (warm: ~1.78s) |
-
-### 4. Analytical Read + GroupBy Aggregation (CSV vs. Parquet)
-Query: `groupBy("Pair", "Year").agg(avg("Close"))` across the entire 75,337 row dataset:
-- **Raw CSV Read + GroupBy:** 0.6027 s mean (warm: 0.3791 s)
-- **Snappy Parquet Read + GroupBy:** **0.5499 s mean** (warm: **0.2648 s**) &rarr; **1.10x faster analytical throughput**
+1. **Source**: HistData.com 1-minute historical tick records (2017-01-01 to 2024-12-31) across 6 currency pairs:
+   - `EURUSD`: 48,986 hourly bars [0.9539, 1.2549]
+   - `GBPUSD`: 48,968 hourly bars [1.0400, 1.4366]
+   - `USDJPY`: 48,967 hourly bars [102.07, 161.94]
+   - `AUDUSD`: 48,966 hourly bars [0.5552, 0.8134]
+   - `USDCAD`: 48,970 hourly bars [1.2019, 1.4660]
+   - `USDCHF`: 48,965 hourly bars [0.8351, 1.0305]
+   - **Total Bronze Records**: **293,822 bars**
+2. **Licensing & Terms**:
+   - HistData terms grant free access for personal, educational, and research use without warranty.
+   - Scripted downloads are not explicitly mentioned in the terms, but `robots.txt` does not restrict the historical download paths.
+   - Acquisition used a polite rate limit (48 sequential HTTP requests throttled at 1 request/second) without scraping forms or bypassing controls.
+3. **Timezone Proof**:
+   - HistData timestamps follow civil New York time (`US/Eastern` with DST).
+   - Normalized to UTC using standard DST offsets.
+   - Empirically verified via US Non-Farm Payrolls (NFP, 08:30 NY) volatility spikes: peaks exactly at **12:00 UTC** in Summer (`0.002576`) and **13:00 UTC** in Winter (`0.002180`).
+   - FOMC announcement volatility (14:00 NY) peaks at **18:00 UTC** in Summer (`0.003301`) and **19:00 UTC** in Winter (`0.002959`).
 
 ---
 
-## Automated Data Quality Verification
+## Quality Gate & Capped Forward-Fill
 
-Every pipeline run produces `data_quality_report.json`, verifying data integrity at every transformational boundary:
-
-* **Row Count Reconciliation:** Raw Ingest (75,337) &rarr; Cleaned (75,337) &rarr; Features (75,337).
-* **Deduplication:** 0 duplicate rows removed on `(Pair, Date)`.
-* **Null Check:** 0 nulls in raw/cleaned stages; exactly 20 lag boundary nulls in features ($k \times \text{Pairs}$ lag warmup).
-* **Schema Validation:** 24 of 24 expected columns verified valid (`passed: true`).
-* **Temporal Coverage:** EURUSD from `2017-01-01` to `2024-12-31 23:00:00`; GBPUSD from `2017-01-01 00:00:00` to `2017-07-28 07:00:00`.
-* **Anomaly Flagging:** 0 zero-volume bars; 21,515 weekend records cataloged for trading session filtering.
-
----
-
-## Spark SQL Analytical Queries
-
-The pipeline includes 4 Spark SQL analytical queries in `sql/` executed against the full partitioned Parquet output:
-
-1. **`monthly_volatility.sql`** (2.28 s): Calculates monthly average Close, standard deviation (volatility), and average percentage change.
-2. **`top_volatility_days.sql`** (0.83 s): Windowed ranking of top 10 volatile periods per pair by price range (`High - Low`) and relative percentage spread.
-3. **`volume_aggregates.sql`** (0.44 s): Aggregates total traded volume, mean bar volume, and peak volume per pair and year.
-4. **`row_count_reconciliation.sql`** (0.51 s): Verifies actual row counts, min/max timestamps, and distinct trading days per pair and year.
-
-Run all queries:
-```bash
-python sql/run_queries.py
-```
+- **Rules Configured in `config.yaml`**:
+  - `price_bounds`: Rejects out-of-range prices (e.g. EURUSD [0.85, 1.45]).
+  - `max_hourly_jump_pct`: Quarantines any bar with $|r| > 5.0\%$.
+  - `forward_fill_cap_hours`: 3 hours. Gaps $\le 3\text{h}$ are forward-filled with prior Close, `Volume = 0`, `is_filled = True`, and `gap_length` recorded.
+  - Weekend closures (Friday 19:00+ to Sunday 20:00+ UTC) are strictly preserved and never filled.
+- **Measured Quality Gate Output**:
+  - **Real HistData (293,822 rows)**: **0 rows quarantined** (100% pass rate).
+  - **Synthetic Test Fixture (70,128 rows)**: **67,634 rows quarantined** (96.44%) due to decay below 0.85 under rule `PRICE_IMPLAUSIBLE`.
+  - **Fills Added**: **4,634 bars** across 8 years ($3,508$ 2-hour gaps, $563$ 3-hour gaps).
+  - **Unfilled Gaps > 3h**: 22 to 25 extended holiday market closures per pair (Christmas Dec 22-25, New Year Dec 29-Jan 1) correctly left unfilled.
 
 ---
 
-## Directory Structure
+## 24-Hour Forecasting Layer Results
 
-```
-forex-data-pipeline/
-├── src/
-│   ├── spark_session.py        # Configured SparkSession factory (Windows & cluster ready)
-│   ├── ingest.py               # Explicit schema reader with filename metadata extraction
-│   ├── clean.py                # Deduplication, UTC conversion, partitioned forward-fill
-│   ├── features.py             # MA5, MA20, Volatility20, lag features (all Pair-partitioned)
-│   ├── quality.py              # Automated data quality checker & JSON report logger
-│   ├── output.py               # Snappy Parquet partitioned exporter (by Pair and Year)
-│   └── pipeline.py             # End-to-end pipeline orchestrator with stage timing
-├── sql/
-│   ├── monthly_volatility.sql       # Monthly average price, volatility, and returns
-│   ├── top_volatility_days.sql      # Top 10 volatile periods per currency pair
-│   ├── volume_aggregates.sql        # Traded volume totals and peaks by Pair and Year
-│   ├── row_count_reconciliation.sql # Temporal consistency and row count reconciliation
-│   └── run_queries.py               # Executes all 4 SQL queries against full Parquet output
-├── benchmarks/
-│   ├── run_benchmarks.py            # Multi-scale Pandas vs PySpark & CSV vs Parquet benchmarks
-│   ├── measure_full_pipeline.py     # 3-run cold/warm stage latency and storage footprint profiler
-│   └── pipeline_measurement_results.json
-├── dags/
-│   └── forex_batch_pipeline.py # Production Airflow DAG (ingest >> clean >> validate >> features >> parquet)
-├── tests/
-│   ├── conftest.py             # Shared SparkSession & mock time-series fixture
-│   └── test_cleaning_and_features.py # Pytest unit tests (dedup, ffill, partition isolation)
-├── data/
-│   ├── raw/                    # Source OHLCV CSVs (EURUSD 1h/1d, GBPUSD 1h)
-│   └── processed/parquet/      # Partitioned Snappy Parquet dataset (Pair=*/Year=*)
-├── benchmarks.md               # Detailed empirical benchmark log
-├── data_quality_report.json    # Automated data quality audit report
-├── docker-compose.airflow.yml  # Docker Compose for Apache Airflow deployment
-└── README.md
-```
+Evaluated across **5 expanding-window walk-forward folds** (2017–2024) with a **24-bar embargo gap** between training and test folds to eliminate label overlap leakage.
+
+### 1. EURUSD Benchmark Walk-Forward Metrics (With vs Without 2023)
+
+| Horizon | With 2023 Ridge MAE | With 2023 Tree MAE | Without 2023 Ridge MAE | Diff (%) | Directional Accuracy | Binomial Test p-value | Paired Loss Test p-value |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **h=01** | **0.000639** | 0.000639 | 0.000659 | -3.04% | 50.9% | $p = 0.1805$ | $p = 0.3634$ |
+| **h=06** | **0.001633** | 0.001638 | 0.001674 | -2.51% | 50.8% | $p = 0.2140$ | $p = 0.4891$ |
+| **h=12** | **0.002397** | 0.002409 | 0.002462 | -2.71% | 50.1% | $p = 0.4610$ | $p = 0.5218$ |
+| **h=24** | **0.003478** | 0.003492 | 0.003593 | -3.29% | 49.1% | $p = 0.6975$ | $p = 0.5451$ |
+
+### 2. Direct Multi-Horizon vs Recursive Rollout Comparison (EURUSD)
+
+| Horizon | Direct Ridge MAE | Recursive Rollout MAE | Error Accumulation Penalty (%) |
+| :---: | :---: | :---: | :---: |
+| **h=01** | **0.000639** | 0.000820 | +28.29% |
+| **h=06** | **0.001633** | 0.001944 | +19.02% |
+| **h=12** | **0.002397** | 0.002838 | +18.40% |
+| **h=24** | **0.003478** | 0.004028 | +15.81% |
+
+**Key Empirical Finding**: Direct multi-horizon forecasting avoids autoregressive error feedback and achieves **15.8% to 28.3% lower MAE** than recursive rollouts across multi-step horizons.
+
+### 3. Empirical Market Truth: Near Random-Walk Behavior
+- Across all 6 pairs and all horizons $h=1..24$, the improvement of Ridge and Gradient Boosted Trees over the naive zero-return baseline is within noise ($\pm 0.1\%$).
+- Directional accuracy remains between $48.7\%$ and $51.2\%$, with binomial test $p$-values $> 0.18$ and paired loss $p$-values $> 0.35$.
+- **Statistical Conclusion**: Hourly returns in major liquid currency markets are near random-walks. Point-in-time technical features do not generate statistically significant alpha over the zero-return baseline on 1-hour bars.
 
 ---
 
-## Getting Started & Execution Guide
+## Phase 3: Data Insights
 
-### 1. Prerequisites
-* Python 3.10+ (tested on Python 3.12)
-* Java 11, 17, or 25 LTS (with `winutils.exe` if running on Windows)
-* Dependencies:
-  ```bash
-  pip install pyspark pandas pyarrow pytest psutil
-  ```
+1. **Intraday Volatility by Hour (UTC)**:
+   - Peak volatility occurs during the **London / New York Session Overlap** (12:00 to 16:00 UTC), reaching a maximum mean absolute hourly return of **0.001156** at 14:00 UTC.
+   - Lowest volatility occurs during the late NY session and early Asian session (20:00 to 04:00 UTC), bottoming at **0.000395** at 21:00 UTC.
+2. **Weekday Effect**:
+   - Volatility progressively increases through the trading week: Monday (`0.000618`) < Tuesday (`0.000672`) < Wednesday (`0.000694`) < Thursday (`0.000709`) < Friday (`0.000727`).
+3. **Volatility Clustering**:
+   - Autocorrelation of raw returns $r_t$ is near zero ($\text{Lag 1} = -0.0215$, $\text{Lag 2} = -0.0036$).
+   - Autocorrelation of absolute returns $|r_t|$ is strongly positive ($\text{Lag 1} = +0.2193$, $\text{Lag 2} = +0.1892$, $\text{Lag 24} = +0.1987$). Large hourly moves cluster together, exhibiting a 24-hour diurnal seasonal cycle.
 
-### 2. Run the End-to-End Pipeline
+---
+
+## Quickstart & Commands
+
+### Prerequisites
+- Python 3.12+
+- Docker & Docker Compose
+- Java 17+ (for local PySpark)
+
+### Setup & Run
 ```bash
-python src/pipeline.py
-```
-
-### 3. Run Automated Unit Tests
-```bash
-pytest tests/ -v
-```
-
-### 4. Run Spark SQL Analytical Queries
-```bash
-python sql/run_queries.py
-```
-
-### 5. Run Performance Benchmarks
-```bash
-python benchmarks/run_benchmarks.py
-```
-
-### 6. Orchestrate with Apache Airflow
-Launch the PostgreSQL metadata store, webserver, and scheduler:
-```bash
+# 1. Start PostgreSQL & Airflow containers
 docker compose -f docker-compose.airflow.yml up -d
+
+# 2. Run Pytest Verification Suite
+pytest --cov=src -v tests/
+
+# 3. Trigger Airflow Batch Pipeline
+docker exec forex-airflow-scheduler airflow dags trigger forex_data_platform_dag
+
+# 4. Start REST API
+uvicorn src.api:app --host 0.0.0.0 --port 8000
 ```
-Access the Airflow Web UI at `http://localhost:8080` (credentials: `admin` / `admin`).
-*(Note: For distributed container execution of PySpark tasks, build an extended Airflow image with OpenJDK and PySpark, or point Airflow's `SparkSubmitOperator` to an external Spark cluster).*
