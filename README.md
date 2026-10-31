@@ -1,4 +1,4 @@
-# Forex Data Platform & 24-Hour Forecasting Layer
+# FX Data Platform
 
 [![GitHub](https://img.shields.io/badge/GitHub-Forex--Distributed--Data--Engineering-blue?logo=github)](https://github.com/Kishore-1803/Forex-Distributed-Data-Engineering.git)
 [![PySpark](https://img.shields.io/badge/PySpark-3.5%2F4.2-orange.svg)](https://spark.apache.org/)
