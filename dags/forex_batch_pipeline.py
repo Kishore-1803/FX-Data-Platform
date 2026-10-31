@@ -27,8 +27,9 @@ default_args = {
 def task_replay(**context):
     from src.replay import HistoricalReplayDriver
     replay = HistoricalReplayDriver()
-    released = replay.release_next_slice(slice_size_hours=168)
-    msg = f"Released {len(released)} slice files to landing"
+    slice_hours = int(os.environ.get("REPLAY_SLICE_HOURS", 720))
+    released = replay.release_next_slice(slice_size_hours=slice_hours)
+    msg = f"Released {len(released)} slice files to landing (slice_size={slice_hours}h)"
     context["ti"].xcom_push(key="released_files", value=released)
     return msg
 

@@ -26,9 +26,8 @@ from src.db_loader import get_db_engine, init_db
 from src.forecasting import (
     FEATURE_COLS,
     WalkForwardValidator,
-    compute_metrics,
     train_and_evaluate_direct,
-    train_and_evaluate_recursive,
+    train_and_evaluate_recursive_walk_forward,
     save_to_model_registry,
     batch_score_latest_bars,
     run_monitoring_and_drift_detection
@@ -88,7 +87,10 @@ def main():
             r = res["ridge"]
             t = res["tree"]
             d = res["drift_baseline"]
-            print(f"  h={h:02d} | Baseline MAE: {r['mae_baseline']:.6f} | Ridge MAE: {r['mae']:.6f} ({r['pct_improvement']:+.2f}%) DA: {r['directional_accuracy']:.1f}% (p={r['p_val_directional']:.4f}, paired_p={r['p_val_paired']:.4f}) | Tree MAE: {t['mae']:.6f} ({t['pct_improvement']:+.2f}%) DA: {t['directional_accuracy']:.1f}%")
+            n = res["n_samples"]
+            ci_str = f"[{r['ci_95'][0]:.1f}%, {r['ci_95'][1]:.1f}%]"
+            if h in [1, 6, 12, 24]:
+                print(f"  h={h:02d} (n={n:,}) | Ridge MAE: {r['mae']:.6f} (Base: {r['mae_baseline']:.6f}, {r['pct_improvement']:+.2f}%) | DA: {r['directional_accuracy']:.1f}% 95%CI:{ci_str} (Effect:{r['effect_size']:+.4f}, Binom p={r['p_val_binomial']:.4f}, HAC DM p={r['p_val_hac']:.4f}) | Tree MAE: {t['mae']:.6f} DA: {t['directional_accuracy']:.1f}%")
 
             # Prepare registry record
             all_registry_records.append({
@@ -127,21 +129,21 @@ def main():
         diff = ((w["mae"] - wo["mae"]) / w["mae"]) * 100.0
         print(f"  h={h:02d}   |       {w['mae']:.6f}        |         {wo['mae']:.6f}         |  {diff:+.2f}%  |    {w['directional_accuracy']:.1f}%    |     {wo['directional_accuracy']:.1f}%")
 
-    # 5. Direct vs Recursive 24-step Comparison
-    print("\n--- 4. DIRECT VS RECURSIVE MULTI-HORIZON COMPARISON (EURUSD) ---")
-    rec_results = train_and_evaluate_recursive(eur_df, max_steps=24)
-    print("Horizon | Direct Ridge MAE | Recursive Rollout MAE | Error Accumulation Penalty (%)")
-    print("--------|------------------|-----------------------|-------------------------------")
+    # 5. Direct vs Recursive Comparison on EXACT SAME Walk-Forward Folds
+    print("\n--- 4. DIRECT VS RECURSIVE MULTI-HORIZON COMPARISON (EURUSD, Same WF Folds) ---")
+    rec_results = train_and_evaluate_recursive_walk_forward(eur_df, "EURUSD", horizons=[1, 6, 12, 24])
+    print("Horizon | Test n  | Direct Ridge MAE | Recursive Rollout MAE | Error Accumulation Penalty (%)")
+    print("--------|---------|------------------|-----------------------|-------------------------------")
     for item in rec_results["recursive_rollout_metrics"]:
         h = item["horizon"]
+        n_samp = item["n_samples"]
         d_mae = eur_with_2023[h]["ridge"]["mae"]
         r_mae = item["recursive_mae"]
         penalty = ((r_mae - d_mae) / d_mae) * 100.0
-        print(f"  h={h:02d}   |     {d_mae:.6f}     |       {r_mae:.6f}        |           {penalty:+.2f}%")
+        print(f"  h={h:02d}   | {n_samp:,}  |     {d_mae:.6f}     |       {r_mae:.6f}        |           {penalty:+.2f}%")
 
     # 6. Pooled Multi-Pair Model vs Per-Pair Models
     print("\n--- 5. POOLED MULTI-PAIR MODEL VS PER-PAIR MODELS ---")
-    # Build pooled dataset with one-hot pair indicator
     pooled_df = df_gold.dropna(subset=FEATURE_COLS + ["target_r_1"]).copy()
     pair_dummies = pd.get_dummies(pooled_df["Pair"], prefix="pair", drop_first=True)
     pooled_features = FEATURE_COLS + list(pair_dummies.columns)
@@ -159,8 +161,11 @@ def main():
     ridge_pooled = Ridge(alpha=10.0)
     ridge_pooled.fit(X_tr_p, y_tr_p)
     pred_pooled = ridge_pooled.predict(X_te_p)
-    m_pooled = compute_metrics(y_te_p, pred_pooled, np.zeros_like(y_te_p))
-    print(f"Pooled Model (6 pairs, h=1): MAE={m_pooled['mae']:.6f}, DA={m_pooled['directional_accuracy']:.1f}%, Improvement={m_pooled['pct_improvement']:+.2f}%")
+    mae_p = float(np.mean(np.abs(y_te_p - pred_pooled)))
+    mae_base_p = float(np.mean(np.abs(y_te_p)))
+    pct_imp_p = ((mae_base_p - mae_p) / mae_base_p) * 100.0
+    da_p = float(np.mean(np.sign(y_te_p) == np.sign(pred_pooled)) * 100.0)
+    print(f"Pooled Model (6 pairs, h=1, n={len(y_te_p):,}): MAE={mae_p:.6f} (Base: {mae_base_p:.6f}, {pct_imp_p:+.2f}%), DA={da_p:.1f}%")
 
     # Save to model registry
     save_to_model_registry(engine, all_registry_records)

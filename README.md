@@ -1,5 +1,6 @@
 # Forex Data Platform & 24-Hour Forecasting Layer
 
+[![GitHub](https://img.shields.io/badge/GitHub-Forex--Distributed--Data--Engineering-blue?logo=github)](https://github.com/Kishore-1803/Forex-Distributed-Data-Engineering.git)
 [![PySpark](https://img.shields.io/badge/PySpark-3.5%2F4.2-orange.svg)](https://spark.apache.org/)
 [![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
 [![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL%2015-blue.svg)](https://www.postgresql.org/)
@@ -8,8 +9,21 @@
 
 An automated Forex historical data platform with an incremental batch pipeline, automated data quality gate, PostgreSQL storage, point-in-time technical feature store, and a 24-hour multi-horizon hourly forecasting layer.
 
+**Repository URL**: `https://github.com/Kishore-1803/Forex-Distributed-Data-Engineering.git`
+
 > [!IMPORTANT]
 > **Data Stream & Feed Architecture**: This platform consumes and replays historical currency market data for simulation and backtesting purposes. It is **not** a real-time market data feed. All reported metrics, models, and latency figures represent empirical measurements on historical replay batches.
+
+---
+
+## Machine & Hardware Specifications
+Queried directly from OS via Windows WMI/CIM (`Get-CimInstance Win32_Processor` and `Win32_OperatingSystem`):
+- **CPU**: `13th Gen Intel(R) Core(TM) i9-13980HX` (24 physical cores, 32 logical processors)
+- **RAM**: 16.0 GB (15.63 GB visible memory)
+- **OS**: Windows 11 Home 10.0.26300
+- **Python**: 3.12.9
+- **Database**: PostgreSQL 15 (Docker container `forex-airflow-postgres`, port 5433)
+- **Orchestrator**: Apache Airflow 2.8.1 (Docker containers `forex-airflow-webserver` & `forex-airflow-scheduler`)
 
 ---
 
@@ -108,28 +122,65 @@ Evaluated across **5 expanding-window walk-forward folds** (2017–2024) with a 
 
 ### 1. EURUSD Benchmark Walk-Forward Metrics (With vs Without 2023)
 
-| Horizon | With 2023 Ridge MAE | With 2023 Tree MAE | Without 2023 Ridge MAE | Diff (%) | Directional Accuracy | Binomial Test p-value | Paired Loss Test p-value |
-| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **h=01** | **0.000639** | 0.000639 | 0.000659 | -3.04% | 50.9% | $p = 0.1805$ | $p = 0.3634$ |
-| **h=06** | **0.001633** | 0.001638 | 0.001674 | -2.51% | 50.8% | $p = 0.2140$ | $p = 0.4891$ |
-| **h=12** | **0.002397** | 0.002409 | 0.002462 | -2.71% | 50.1% | $p = 0.4610$ | $p = 0.5218$ |
-| **h=24** | **0.003478** | 0.003492 | 0.003593 | -3.29% | 49.1% | $p = 0.6975$ | $p = 0.5451$ |
+| Horizon ($h$) | Test $n$ | With 2023 Ridge MAE | With 2023 Tree MAE | Without 2023 Ridge MAE | Diff (%) | Ridge DA | 95% Wilson CI | Effect Size | Binomial $p$ | HAC DM $p$ |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **h=01** | 28,379 | **0.000641** | 0.000641 | 0.000661 | -3.12% | 50.9% | [50.3%, 51.4%] | +0.0086 | 0.0020 | 0.0450 |
+| **h=06** | 28,575 | **0.001635** | 0.001633 | 0.001677 | -2.57% | 50.8% | [50.2%, 51.4%] | +0.0081 | 0.0030 | 0.8887 |
+| **h=12** | 28,414 | **0.002396** | 0.002392 | 0.002461 | -2.71% | 50.2% | [49.6%, 50.8%] | +0.0018 | 0.2745 | 0.9913 |
+| **h=24** | 28,603 | **0.003475** | 0.003494 | 0.003589 | -3.28% | 49.2% | [48.7%, 49.8%] | -0.0075 | 0.9947 | 0.9896 |
 
-### 2. Direct Multi-Horizon vs Recursive Rollout Comparison (EURUSD)
+### 2. Direct Multi-Horizon vs Recursive Rollout Comparison (EURUSD, Matched WF Folds)
+Evaluated on identical walk-forward folds ($n \approx 28,500$ per horizon):
 
-| Horizon | Direct Ridge MAE | Recursive Rollout MAE | Error Accumulation Penalty (%) |
-| :---: | :---: | :---: | :---: |
-| **h=01** | **0.000639** | 0.000820 | +28.29% |
-| **h=06** | **0.001633** | 0.001944 | +19.02% |
-| **h=12** | **0.002397** | 0.002838 | +18.40% |
-| **h=24** | **0.003478** | 0.004028 | +15.81% |
+| Horizon ($h$) | Test $n$ | Direct Ridge MAE | Recursive Rollout MAE | Error Accumulation Penalty (%) |
+| :---: | :---: | :---: | :---: | :---: |
+| **h=01** | 28,379 | **0.000641** | **0.000641** | **+0.00%** (Identical model & features) |
+| **h=06** | 28,575 | **0.001635** | 0.001633 | -0.12% |
+| **h=12** | 28,414 | **0.002396** | 0.002390 | -0.25% |
+| **h=24** | 28,603 | **0.003475** | 0.003470 | -0.14% |
 
-**Key Empirical Finding**: Direct multi-horizon forecasting avoids autoregressive error feedback and achieves **15.8% to 28.3% lower MAE** than recursive rollouts across multi-step horizons.
+*Note on Earlier Comparison*: An earlier report evaluated recursive rollout on a standalone 500-row slice from January 2023 (a period of elevated market volatility), causing Recursive $h=1$ to diverge from Direct $h=1$. When evaluated on the exact same walk-forward test folds, Direct $h=1$ and Recursive $h=1$ are mathematically identical (`0.000641`).
 
-### 3. Empirical Market Truth: Near Random-Walk Behavior
-- Across all 6 pairs and all horizons $h=1..24$, the improvement of Ridge and Gradient Boosted Trees over the naive zero-return baseline is within noise ($\pm 0.1\%$).
-- Directional accuracy remains between $48.7\%$ and $51.2\%$, with binomial test $p$-values $> 0.18$ and paired loss $p$-values $> 0.35$.
-- **Statistical Conclusion**: Hourly returns in major liquid currency markets are near random-walks. Point-in-time technical features do not generate statistically significant alpha over the zero-return baseline on 1-hour bars.
+### 3. Rigorous Hypothesis Testing & Empirical Market Reality
+
+- **USDJPY $h=24$ Statistical Resolution**:
+  - Pooled test sample: $n = 28,609$. Correct directional calls: $k = 15,048 \rightarrow \text{DA} = \mathbf{52.6\%}$.
+  - 95% Wilson Score Confidence Interval: **[52.0%, 53.2%]**, Effect Size: **+0.0258**.
+  - Exact Binomial Test: $p = 2.4 \times 10^{-19} (< 0.0001)$ against $p=0.5$.
+  - *Why Earlier Script Reported $p = 0.2394$*: The earlier code computed binomial p-values per fold and averaged them (`np.mean`), which is mathematically invalid.
+  - *Why Paired Loss Test Does NOT Beat Baseline (HAC Diebold-Mariano $p = 0.3423$)*: USDJPY rose steadily from 102 to 161 over 2017–2024. A majority-class "UP" drift accounts for the directional rate (52.4% baseline UP frequency). Accounting for overlapping horizon serial correlation with Newey-West HAC variance, the loss reduction is not statistically significant.
+- **Multiple-Testing Correction (Bonferroni / FDR)**:
+  - 6 currency pairs $\times$ 24 horizons = 144 hypothesis tests.
+  - Bonferroni significance threshold: $\alpha = 0.05 / 144 = \mathbf{0.0003472}$.
+  - Under $\alpha = 0.0003472$, neither Ridge nor Gradient Boosted Trees statistically outperforms the zero-return random walk baseline on loss.
+- **KS Drift Alerts on Autocorrelated Data**:
+  - The Kolmogorov-Smirnov test assumes i.i.d. observations. Hourly forex returns exhibit pronounced volatility clustering and serial dependence ($|r|$ lag 1 autocorr $= +0.2193$, lag 24 $= +0.1987$).
+  - As a result, empirical CDF variance exceeds the standard Brownian bridge asymptotic limit, making raw KS p-values anti-conservative. Alerts in `monitoring_alerts` indicate empirical regime shifts in volatility, but cannot be interpreted as i.i.d. alpha or statistically independent drift.
+
+---
+
+## Incremental Replay Execution Inside Airflow DAG
+
+Executed 3 consecutive monthly slices (720 hours = ~1 month per slice) inside the Airflow DAG:
+- **Run 1 (`incremental_dag_run_1`)**: +4,320 rows added across 6 pairs. State advanced to `2017-02-13 06:00:00`. (Totals: Bronze=4,320, Silver=4,320, Gold=4,320).
+- **Run 2 (`incremental_dag_run_2`)**: +4,320 rows added. State advanced to `2017-03-27 05:00:00`. (Totals: Bronze=8,640, Silver=8,640, Gold=8,640).
+- **Run 3 (`incremental_dag_run_3`)**: +4,320 rows added. State advanced to `2017-05-08 05:00:00`. (Totals: Bronze=12,960, Silver=12,960, Gold=12,960).
+- **Idempotency Verification**: Running ingestion with an empty landing directory processed exactly 0 rows and left Parquet row counts unchanged.
+- **Full Catch-Up Load**: Final counts equal **293,822 Bronze** and **298,456 Silver**.
+
+---
+
+## Latency & Serving Benchmarks (100 Requests/Endpoint)
+
+| Endpoint | True HTTP Loopback (p50 / p95) | In-Process TestClient (p50 / p95) | Description |
+| :--- | :---: | :---: | :--- |
+| `GET /rates/latest` | 27.94 ms / 30.14 ms | 28.86 ms / 47.74 ms | PostgreSQL indexed lookup of latest bar |
+| `GET /rates/history` | 30.46 ms / 32.79 ms | 31.69 ms / 44.05 ms | Query of 100 historical curated bars |
+| `GET /quality/status` | 12.95 ms / 14.27 ms | 15.37 ms / 18.81 ms | Summary of quality gate pass/quarantine |
+| `GET /predict` | 3.08 ms / 3.42 ms | 5.00 ms / 5.68 ms | Latest 24-step multi-horizon forecasts |
+| `GET /model/metrics` | 3.32 ms / 3.87 ms | 4.76 ms / 6.81 ms | Registry model performance metrics |
+
+*Scoring Throughput*: Batch scoring 24 forecast steps across trained Ridge models takes **12.05 ms** (mean of 3 runs).
 
 ---
 
