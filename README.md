@@ -9,21 +9,8 @@
 
 An automated Forex historical data platform with an incremental batch pipeline, automated data quality gate, PostgreSQL storage, point-in-time technical feature store, and a 24-hour multi-horizon hourly forecasting layer.
 
-**Repository URL**: `https://github.com/Kishore-1803/Forex-Distributed-Data-Engineering.git`
-
 > [!IMPORTANT]
 > **Data Stream & Feed Architecture**: This platform consumes and replays historical currency market data for simulation and backtesting purposes. It is **not** a real-time market data feed. All reported metrics, models, and latency figures represent empirical measurements on historical replay batches.
-
----
-
-## Machine & Hardware Specifications
-Queried directly from OS via Windows WMI/CIM (`Get-CimInstance Win32_Processor` and `Win32_OperatingSystem`):
-- **CPU**: `13th Gen Intel(R) Core(TM) i9-13980HX` (24 physical cores, 32 logical processors)
-- **RAM**: 16.0 GB (15.63 GB visible memory)
-- **OS**: Windows 11 Home 10.0.26300
-- **Python**: 3.12.9
-- **Database**: PostgreSQL 15 (Docker container `forex-airflow-postgres`, port 5433)
-- **Orchestrator**: Apache Airflow 2.8.1 (Docker containers `forex-airflow-webserver` & `forex-airflow-scheduler`)
 
 ---
 
