@@ -6,5 +6,7 @@ metastore_db/
 derby.log
 *.parquet/
 data/
+data/external/
+data/downloads_m1/
 .env
 
